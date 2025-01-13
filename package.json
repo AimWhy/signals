@@ -1,87 +1,113 @@
 {
-	"name": "preact-signals",
-	"version": "1.0.0",
-	"description": "",
-	"main": "index.js",
-	"private": true,
-	"scripts": {
-		"prebuild": "rimraf packages/core/dist/ packages/preact/dist",
-		"build": "pnpm build:core && pnpm build:preact && pnpm build:react",
-		"build:core": "microbundle --raw --cwd packages/core && pnpm postbuild:core",
-		"build:preact": "microbundle --raw --cwd packages/preact && pnpm postbuild:preact",
-		"build:react": "microbundle --raw --cwd packages/react && pnpm postbuild:react",
-		"postbuild:core": "cd packages/core/dist && mv -f index.d.ts signals-core.d.ts",
-		"postbuild:preact": "cd packages/preact/dist && mv -f preact/src/index.d.ts signals.d.ts && rm -dr preact",
-		"postbuild:react": "cd packages/react/dist && mv -f react/src/index.d.ts signals.d.ts && rm -dr react",
-		"postbuild": "node ./scripts/node-13-exports.js",
-		"lint": "eslint 'packages/**/*.{ts,tsx,js,jsx}'",
-		"test": "cross-env COVERAGE=true karma start karma.conf.js --single-run",
-		"test:watch": "karma start karma.conf.js --no-single-run",
-		"docs:start": "cd docs && pnpm start",
-		"docs:build": "cd docs && pnpm build",
-		"docs:preview": "cd docs && pnpm preview",
-		"ci:build": "pnpm build && pnpm docs:build",
-		"ci:test": "pnpm lint && pnpm test"
-	},
-	"keywords": [],
-	"author": "",
-	"license": "MIT",
-	"devDependencies": {
-		"@babel/core": "^7.18.10",
-		"@babel/preset-env": "^7.18.10",
-		"@babel/preset-react": "^7.18.6",
-		"@babel/preset-typescript": "^7.18.6",
-		"@changesets/cli": "^2.24.2",
-		"@types/chai": "^4.3.3",
-		"@types/mocha": "^9.1.1",
-		"@types/node": "^18.6.5",
-		"@types/sinon": "^10.0.13",
-		"@types/sinon-chai": "^3.2.8",
-		"@typescript-eslint/eslint-plugin": "^5.33.0",
-		"@typescript-eslint/parser": "^5.33.0",
-		"babel-plugin-istanbul": "^6.1.1",
-		"chai": "^4.3.6",
-		"cross-env": "^7.0.3",
-		"errorstacks": "^2.4.0",
-		"esbuild": "^0.14.54",
-		"eslint": "^8.21.0",
-		"eslint-config-prettier": "^8.5.0",
-		"husky": "^8.0.1",
-		"karma": "6.3.16",
-		"karma-chai-sinon": "^0.1.5",
-		"karma-chrome-launcher": "^3.1.1",
-		"karma-coverage": "^2.2.0",
-		"karma-esbuild": "^2.2.5",
-		"karma-mocha": "^2.0.1",
-		"karma-mocha-reporter": "^2.2.5",
-		"karma-sinon": "^1.0.5",
-		"kolorist": "^1.5.1",
-		"lint-staged": "^13.0.3",
-		"microbundle": "^0.15.1",
-		"mocha": "^10.0.0",
-		"prettier": "^2.7.1",
-		"rimraf": "^3.0.2",
-		"sinon": "^14.0.0",
-		"sinon-chai": "^3.7.0",
-		"typescript": "^4.7.4"
-	},
-	"lint-staged": {
-		"**/*.{js,jsx,ts,tsx,yml}": [
-			"prettier --write"
-		]
-	},
-	"husky": {
-		"hooks": {
-			"pre-commit": "lint-staged"
-		}
-	},
-	"prettier": {
-		"useTabs": true,
-		"arrowParens": "avoid"
-	},
-	"pnpm": {
-		"patchedDependencies": {
-			"microbundle@0.15.1": "patches/microbundle@0.15.1.patch"
-		}
-	}
+  "name": "preact-signals",
+  "private": true,
+  "scripts": {
+    "prebuild": "shx rm -rf packages/*/dist/",
+    "build": "pnpm build:core && pnpm build:preact && pnpm build:react-runtime && pnpm build:react && pnpm build:react-transform",
+    "_build": "microbundle --raw --globals @preact/signals-core=preactSignalsCore,preact/hooks=preactHooks,@preact/signals-react/runtime=reactSignalsRuntime",
+    "build:core": "pnpm _build --cwd packages/core && pnpm postbuild:core",
+    "build:preact": "pnpm _build --cwd packages/preact && pnpm postbuild:preact",
+    "build:react": "pnpm _build --cwd packages/react --external \"react,@preact/signals-react/runtime,@preact/signals-core\" && pnpm postbuild:react",
+    "build:react-runtime": "pnpm _build --cwd packages/react/runtime && pnpm postbuild:react-runtime",
+    "build:react-transform": "pnpm _build --no-compress --cwd packages/react-transform",
+    "postbuild:core": "cd packages/core/dist && shx mv -f index.d.ts signals-core.d.ts",
+    "postbuild:preact": "cd packages/preact/dist && shx mv -f preact/src/index.d.ts signals.d.ts && shx rm -rf preact",
+    "postbuild:react": "cd packages/react/dist && shx mv -f react/src/index.d.ts signals.d.ts && shx rm -rf react",
+    "postbuild:react-runtime": "cd packages/react/runtime/dist && shx mv -f react/runtime/src/*.d.ts . && shx rm -rf react",
+    "lint": "pnpm lint:eslint && pnpm lint:tsc",
+    "lint:eslint": "eslint 'packages/**/*.{ts,tsx,js,jsx}'",
+    "lint:tsc": "tsc -p tsconfig.json --noEmit",
+    "lint-staged": "lint-staged",
+    "test": "pnpm test:karma && pnpm test:mocha",
+    "test:minify": "pnpm test:karma:minify && pnpm test:mocha",
+    "test:prod": "pnpm test:karma:prod && pnpm test:mocha:prod",
+    "test:karma": "cross-env COVERAGE=true karma start karma.conf.js --single-run",
+    "test:karma:minify": "cross-env COVERAGE=true MINIFY=true karma start karma.conf.js --single-run",
+    "test:karma:watch": "karma start karma.conf.js --no-single-run",
+    "test:karma:prod": "cross-env MINIFY=true NODE_ENV=production karma start karma.conf.js --single-run",
+    "test:karma:prod:watch": "cross-env NODE_ENV=production karma start karma.conf.js --no-single-run",
+    "test:mocha": "cross-env COVERAGE=true mocha --require test/node/setup.js --recursive packages/*/test/node/**.test.tsx",
+    "test:mocha:prod": "cross-env COVERAGE=true NODE_ENV=production mocha --require test/node/setup.js --recursive packages/*/test/node/**.test.tsx",
+    "docs:start": "cd docs && pnpm start",
+    "docs:build": "cd docs && pnpm build",
+    "docs:preview": "cd docs && pnpm preview",
+    "ci:build": "pnpm build && pnpm docs:build",
+    "ci:test": "pnpm lint && pnpm test",
+    "prepare": "husky install",
+    "format": "prettier --ignore-path .gitignore --write '**/*.{js,jsx,ts,tsx,yml,json,md}'",
+    "version": "pnpm changeset version && pnpm i --lockfile-only"
+  },
+  "authors": [
+    "The Preact Authors (https://github.com/preactjs/signals/contributors)"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.23.3",
+    "@babel/plugin-proposal-explicit-resource-management": "^7.23.3",
+    "@babel/plugin-syntax-jsx": "^7.23.3",
+    "@babel/plugin-transform-modules-commonjs": "^7.23.3",
+    "@babel/plugin-transform-react-jsx": "^7.23.4",
+    "@babel/plugin-transform-typescript": "^7.19.1",
+    "@babel/preset-env": "^7.23.3",
+    "@babel/preset-react": "^7.23.3",
+    "@babel/preset-typescript": "^7.23.3",
+    "@babel/register": "^7.22.15",
+    "@babel/standalone": "^7.23.4",
+    "@changesets/changelog-github": "^0.5.0",
+    "@changesets/cli": "^2.27.1",
+    "@types/babel__traverse": "^7.18.5",
+    "@types/chai": "^4.3.3",
+    "@types/mocha": "^9.1.1",
+    "@types/node": "^18.6.5",
+    "@types/sinon": "^10.0.13",
+    "@types/sinon-chai": "^3.2.8",
+    "@typescript-eslint/eslint-plugin": "^5.33.0",
+    "@typescript-eslint/parser": "^5.33.0",
+    "babel-plugin-istanbul": "^6.1.1",
+    "babel-plugin-transform-rename-properties": "^0.1.0",
+    "buffer": "^6.0.3",
+    "chai": "^4.3.6",
+    "cross-env": "^7.0.3",
+    "errorstacks": "^2.4.0",
+    "esbuild": "^0.14.54",
+    "eslint": "^8.21.0",
+    "eslint-config-prettier": "^8.5.0",
+    "husky": "^8.0.1",
+    "karma": "6.4.2",
+    "karma-chai-sinon": "^0.1.5",
+    "karma-chrome-launcher": "^3.1.1",
+    "karma-coverage": "^2.2.0",
+    "karma-esbuild": "^2.2.5",
+    "karma-mocha": "^2.0.1",
+    "karma-mocha-reporter": "^2.2.5",
+    "karma-sinon": "^1.0.5",
+    "kolorist": "^1.5.1",
+    "lint-staged": "^14.0.1",
+    "microbundle": "^0.15.1",
+    "mocha": "^10.0.0",
+    "prettier": "^2.7.1",
+    "shx": "^0.3.4",
+    "sinon": "^14.0.0",
+    "sinon-chai": "^3.7.0",
+    "typescript": "^4.7.4"
+  },
+  "lint-staged": {
+    "**/*.{js,jsx,ts,tsx,yml,json,md}": [
+      "prettier --write"
+    ]
+  },
+  "prettier": {
+    "arrowParens": "avoid"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "microbundle@0.15.1": "patches/microbundle@0.15.1.patch"
+    },
+    "overrides": {
+      "socket.io": "~4.7.2"
+    }
+  },
+  "volta": {
+    "node": "18.18.0"
+  }
 }

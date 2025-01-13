@@ -25,6 +25,7 @@ var localLaunchers = {
 			"--no-gpu",
 			// Without a remote debugging port, Google Chrome exits immediately.
 			"--remote-debugging-port=9333",
+			"--js-flags=--expose-gc",
 		],
 	},
 };
@@ -35,15 +36,14 @@ const subPkgPath = pkgName => {
 	}
 
 	// Resolve from package.exports field
-	const stripped = pkgName.replace(/[/\\./]/g, "");
-	const pkgJson = path.join(__dirname, "package.json");
+	const pkgJson = path.join(__dirname, pkgName, "package.json");
 	const pkgExports = require(pkgJson).exports;
-	const file = pkgExports[stripped ? `./${stripped}` : "."].browser;
-	return path.join(__dirname, file);
+	const file = pkgExports["."].browser ?? pkgExports["."].import;
+	return path.join(__dirname, pkgName, file);
 };
 
 // Esbuild plugin for aliasing + babel pass
-function createEsbuildPlugin() {
+function createEsbuildPlugin(filteredPkgList) {
 	const pending = new Map();
 	const cache = new Map();
 
@@ -58,11 +58,19 @@ function createEsbuildPlugin() {
 		rename[name] = mangle.props.props[prop];
 	}
 
-	const alias = {
-		"@preact/signals-core": subPkgPath("./packages/core"),
-		"@preact/signals": subPkgPath("./packages/preact"),
-		"@preact/signals-react": subPkgPath("./packages/react"),
-	};
+	const alias = filteredPkgList.reduce((obj, key) => {
+		obj[pkgList[key]] = subPkgPath(`./packages/${key}`);
+		return obj;
+	}, {});
+
+	let signalsTransformPath;
+	if (filteredPkgList.includes("react-transform")) {
+		signalsTransformPath = require.resolve("./packages/react-transform");
+		/* eslint-disable-next-line no-console */
+		console.log(
+			`Transforming tests using ${signalsTransformPath}.\nManually re-compile & re-run tests to validate changes to react-transform`
+		);
+	}
 
 	return {
 		name: "custom",
@@ -90,8 +98,16 @@ function createEsbuildPlugin() {
 				};
 			});
 
-			// Apply babel pass whenever we load a .js file
+			// Mock fs module to run babel in a browser environment
+			build.onResolve({ filter: /^fs$/ }, () => {
+				return { path: path.join(__dirname, "test/browser/mockFs.js") };
+			});
+
+			// Apply babel pass whenever we load a TS or JS file
 			build.onLoad({ filter: /\.[mc]?[jt]sx?$/ }, async args => {
+				// But skip any file from node_modules if we aren't down-leveling
+				if (!downlevel && args.path.includes("node_modules")) return;
+
 				const contents = await fs.readFile(args.path, "utf-8");
 
 				// Using a cache is crucial as babel is 30x slower than esbuild
@@ -120,6 +136,7 @@ function createEsbuildPlugin() {
 							pragmaFrag: "Fragment",
 						},
 					];
+
 					const ts = [
 						"@babel/preset-typescript",
 						{
@@ -128,35 +145,56 @@ function createEsbuildPlugin() {
 						},
 					];
 
+					const renamePlugin = [
+						"babel-plugin-transform-rename-properties",
+						{
+							rename,
+						},
+					];
+
+					/** @type {any} */
+					let signalsTransform = false;
+					if (
+						args.path.includes("packages/react/test/shared") ||
+						args.path.includes("packages/react/runtime/test")
+					) {
+						signalsTransform = [
+							signalsTransformPath,
+							{
+								mode: "auto",
+							},
+						];
+					}
+
+					const downlevelPlugin = [
+						"@babel/preset-env",
+						{
+							loose: true,
+							modules: false,
+							targets: {
+								browsers: ["last 2 versions", "IE >= 11"],
+							},
+						},
+					];
+
+					const coveragePlugin = [
+						"istanbul",
+						{
+							include: minify ? "**/dist/**/*.js" : "**/src/**/*.{ts,js}",
+						},
+					];
+
 					const tmp = await babel.transformAsync(result, {
 						filename: args.path,
 						sourceMaps: "inline",
-						presets: downlevel
-							? [
-									ts,
-									jsx,
-									[
-										"@babel/preset-env",
-										{
-											loose: true,
-											modules: false,
-											targets: {
-												browsers: ["last 2 versions", "IE >= 11"],
-											},
-										},
-									],
-							  ]
-							: [ts, jsx],
+						presets: downlevel ? [ts, jsx, downlevelPlugin] : [ts, jsx],
 						plugins: [
-							coverage && [
-								"istanbul",
-								{
-									include: minify ? "**/dist/**/*.js" : "**/src/**/*.js",
-								},
-							],
+							signalsTransform,
+							coverage && coveragePlugin,
+							minify && renamePlugin,
 						].filter(Boolean),
 					});
-					result = tmp.code || result;
+					result = (tmp && tmp.code) || result;
 					cache.set(args.path, { input: contents, result });
 
 					// Fire all pending listeners that are waiting on the same
@@ -182,7 +220,27 @@ function createEsbuildPlugin() {
 	};
 }
 
+const pkgList = {
+	core: "@preact/signals-core",
+	preact: "@preact/signals",
+	react: "@preact/signals-react",
+	"react/runtime": "@preact/signals-react/runtime",
+	"react-transform": "@preact/signals-react-transform",
+};
+
 module.exports = function (config) {
+	let filteredPkgList = Object.keys(pkgList),
+		filteredPkgPattern = `{${Object.keys(pkgList).join(",")}}`;
+
+	// Doesn't quite adhere to Karma's `--grep` flag, but should be good enough to filter by package.
+	// E.g., `--grep=preact,core`
+	if (config.grep) {
+		filteredPkgList = config.grep.split(",");
+		filteredPkgPattern = filteredPkgList[1]
+			? `{${filteredPkgList.join(",")}}`
+			: filteredPkgList[0];
+	}
+
 	config.set({
 		browsers: Object.keys(localLaunchers),
 
@@ -245,8 +303,25 @@ module.exports = function (config) {
 		customLaunchers: localLaunchers,
 
 		files: [
+			...(filteredPkgList.some(i => /^react/.test(i))
+				? [
+						{
+							// Provide some NodeJS globals to run babel in a browser environment
+							pattern: "test/browser/nodeGlobals.js",
+							watched: false,
+							type: "js",
+						},
+						{
+							pattern: "test/browser/babel.js",
+							watched: false,
+							type: "js",
+						},
+				  ]
+				: []),
 			{
-				pattern: process.env.TESTS || "packages/*/test/**/*.test.tsx",
+				pattern:
+					process.env.TESTS ||
+					`packages/${filteredPkgPattern}/test/{,browser,shared}/*.test.tsx`,
 				watched: false,
 				type: "js",
 			},
@@ -257,7 +332,9 @@ module.exports = function (config) {
 		},
 
 		preprocessors: {
-			"packages/*/test/**/*": ["esbuild"],
+			[`packages/${filteredPkgPattern}/test/**/*`]: ["esbuild"],
+			[`test/browser/babel.js`]: ["esbuild"],
+			[`test/browser/nodeGlobals.js`]: ["esbuild"],
 		},
 
 		plugins: [
@@ -280,7 +357,7 @@ module.exports = function (config) {
 				COVERAGE: coverage,
 				"process.env.NODE_ENV": JSON.stringify(process.env.NODE_ENV || ""),
 			},
-			plugins: [createEsbuildPlugin()],
+			plugins: [createEsbuildPlugin(filteredPkgList)],
 		},
 	});
 };

@@ -1,13 +1,14 @@
 import { defineConfig, Plugin, Connect } from "vite";
 import preact from "@preact/preset-vite";
-import { resolve } from "path";
+import { resolve, posix, join } from "path";
 import fs from "fs";
+
+const root = resolve(__dirname, "../packages");
 
 // Automatically set up aliases for monorepo packages.
 // Uses built packages in prod, "source" field in dev.
 function packages(prod: boolean) {
 	const alias: Record<string, string> = {};
-	const root = resolve(__dirname, "../packages");
 	for (let name of fs.readdirSync(root)) {
 		if (name[0] === ".") continue;
 		const p = resolve(root, name, "package.json");
@@ -21,18 +22,54 @@ function packages(prod: boolean) {
 
 export default defineConfig(env => ({
 	plugins: [
-		preact({
-			exclude: /\breact/,
-		}),
+		process.env.DEBUG
+			? preact({
+					exclude: /\breact/,
+			  })
+			: null,
 		multiSpa(["index.html", "demos/**/*.html"]),
 		unsetPreactAliases(),
 	],
+	esbuild: {
+		jsx: "automatic",
+		jsxImportSource: "preact",
+	},
+	optimizeDeps: {
+		include: ["preact/jsx-runtime", "preact/jsx-dev-runtime"],
+	},
 	build: {
-		polyfillModulePreload: false,
+		modulePreload: { polyfill: false },
+		cssCodeSplit: false,
+		rollupOptions: {
+			output: {
+				entryFileNames(chunk) {
+					let name = chunk.name;
+					if (chunk.facadeModuleId) {
+						const p = posix.normalize(chunk.facadeModuleId);
+						const m = p.match(/([^/]+)(?:\/index)?\.[^/]+$/);
+						if (m) name = m[1];
+					}
+					return `${name}-[hash].js`;
+				},
+			},
+		},
 	},
 	resolve: {
 		extensions: [".ts", ".tsx", ".js", ".jsx", ".d.ts"],
-		alias: env.mode === "production" ? {} : packages(false),
+		alias:
+			env.mode === "production"
+				? {
+						// Vite can't resolve main packages referring to their own sub
+						// packages at build time (aka @preact/signals-react ->
+						// @preact/signals-react/runtime) because pnpm symlinks resolve to
+						// the actual paths so when Vite climbs up the directory tree to
+						// find the parent node_modules to then resolve back down, it
+						// doesn't find the parent node_modules since our source is not in
+						// one, as expected. I'm working around this by just mainly aliasing
+						// the package that needs to be resolved.
+						"@preact/signals-react/runtime": join(root, "react/runtime"),
+				  }
+				: packages(false),
 	},
 }));
 
@@ -40,7 +77,9 @@ function unsetPreactAliases(): Plugin {
 	return {
 		name: "remove react aliases",
 		config(config) {
-			const aliases = config.resolve!.alias!;
+			const aliases = config.resolve?.alias;
+			if (aliases == null) return;
+
 			["react", "react-dom", "react-dom/test-utils"].forEach(pkg => {
 				// @ts-ignore-next-line
 				delete aliases[pkg];

@@ -12,6 +12,8 @@ const demos = {
 	GlobalCounter,
 	DuelingCounters,
 	Nesting: lazy(() => import("./nesting")),
+	Animation: lazy(() => import("./animation")),
+	Bench: lazy(() => import("./bench")),
 };
 
 function Demos() {

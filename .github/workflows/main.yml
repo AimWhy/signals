@@ -13,37 +13,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Install Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
+        uses: actions/checkout@v4
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v2.2.2
+        uses: pnpm/action-setup@v3
         with:
-          version: 7
-          run_install: false
+          version: 9.12
 
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: |
-          echo "::set-output name=pnpm_cache_dir::$(pnpm store path)"
-
-      - uses: actions/cache@v3
-        name: Setup pnpm cache
+      - name: Install Node.js
+        uses: actions/setup-node@v4
         with:
-          path: ${{ steps.pnpm-cache.outputs.pnpm_cache_dir }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          node-version: 18
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build
+        run: pnpm build
+
+      - name: Lint
+        run: pnpm lint
+
       - name: Tests
         run: pnpm test
 
-      - name: Build
-        run: pnpm build
+      - name: Test production build
+        run: pnpm test:minify
+
+      - name: Test react production build
+        run: pnpm test:prod
+
+      - name: Test React 16
+        working-directory: packages/react
+        run: |
+          pnpm i react@16 react-dom@16 react-router-dom@5
+          pnpm -w test:minify
+          pnpm -w test:prod

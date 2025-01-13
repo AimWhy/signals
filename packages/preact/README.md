@@ -1,4 +1,3 @@
-
 # Signals
 
 Signals is a performant state management library with two primary goals:
@@ -15,15 +14,16 @@ npm install @preact/signals
 ```
 
 - [Guide / API](../../README.md#guide--api)
-	- [`signal(initialValue)`](../../README.md#signalinitialvalue)
-		- [`signal.peek()`](../../README.md#signalpeek)
-	- [`computed(fn)`](../../README.md#computedfn)
-	- [`effect(fn)`](../../README.md#effectfn)
-	- [`batch(fn)`](../../README.md#batchfn)
+  - [`signal(initialValue)`](../../README.md#signalinitialvalue)
+    - [`signal.peek()`](../../README.md#signalpeek)
+  - [`computed(fn)`](../../README.md#computedfn)
+  - [`effect(fn)`](../../README.md#effectfn)
+  - [`batch(fn)`](../../README.md#batchfn)
+  - [`untracked(fn)`](../../README.md#untrackedfn)
 - [Preact Integration](#preact-integration)
-	- [Hooks](#hooks)
-	- [Rendering optimizations](#rendering-optimizations)
-		- [Attribute optimization (experimental)](#attribute-optimization-experimental)
+  - [Hooks](#hooks)
+  - [Rendering optimizations](#rendering-optimizations)
+    - [Attribute optimization (experimental)](#attribute-optimization-experimental)
 - [License](#license)
 
 ## Preact Integration
@@ -51,14 +51,18 @@ function CounterValue() {
 
 ### Hooks
 
-If you need to instantiate new signals inside your components, you can use the `useSignal` or `useComputed` hook.
+If you need to instantiate new signals or create new side effects on signal changes inside your components, you can use the `useSignal`, `useComputed` and `useSignalEffect` hooks.
 
 ```js
-import { useSignal, useComputed } from "@preact/signals";
+import { useSignal, useComputed, useSignalEffect } from "@preact/signals";
 
 function Counter() {
 	const count = useSignal(0);
 	const double = useComputed(() => count.value * 2);
+
+	useSignalEffect(() => {
+		console.log(`Value: ${count.value}, value x 2 = ${double.value}`);
+	});
 
 	return (
 		<button onClick={() => count.value++}>
@@ -101,7 +105,7 @@ import { signal } from "@preact/signals";
 const inputValue = signal("foobar");
 
 function Person() {
-	return <input value={inputValue} />;
+	return <input value={inputValue} onInput={...} />;
 }
 ```
 

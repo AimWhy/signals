@@ -1,4 +1,3 @@
-
 # Signals
 
 Signals is a performant state management library with two primary goals:
@@ -22,17 +21,19 @@ npm install @preact/signals-core
 ```
 
 - [Guide / API](#guide--api)
-	- [`signal(initialValue)`](#signalinitialvalue)
-		- [`signal.peek()`](#signalpeek)
-	- [`computed(fn)`](#computedfn)
-	- [`effect(fn)`](#effectfn)
-	- [`batch(fn)`](#batchfn)
+  - [`signal(initialValue)`](#signalinitialvalue)
+    - [`signal.peek()`](#signalpeek)
+  - [`computed(fn)`](#computedfn)
+  - [`effect(fn)`](#effectfn)
+  - [`batch(fn)`](#batchfn)
+  - [`untracked(fn)`](#untrackedfn)
 - [Preact Integration](./packages/preact/README.md#preact-integration)
-	- [Hooks](./packages/preact/README.md#hooks)
-	- [Rendering optimizations](./packages/preact/README.md#rendering-optimizations)
-		- [Attribute optimization (experimental)](./packages/preact/README.md#attribute-optimization-experimental)
+  - [Hooks](./packages/preact/README.md#hooks)
+  - [Rendering optimizations](./packages/preact/README.md#rendering-optimizations)
+    - [Attribute optimization (experimental)](./packages/preact/README.md#attribute-optimization-experimental)
 - [React Integration](./packages/react/README.md#react-integration)
-	- [Hooks](./packages/react/README.md#hooks)
+  - [Hooks](./packages/react/README.md#hooks)
+  - [Rendering optimizations](./packages/react/README.md#rendering-optimizations)
 - [License](#license)
 
 ## Guide / API
@@ -55,7 +56,7 @@ console.log(counter.value);
 counter.value = 1;
 ```
 
-Writing to a signal is done by setting its `.value` property. Changing a signal's value synchronously updates every [computed](#computed) and [effect](#effect) that depends on that signal, ensuring your app state is always consistent.
+Writing to a signal is done by setting its `.value` property. Changing a signal's value synchronously updates every [computed](#computedfn) and [effect](#effectfn) that depends on that signal, ensuring your app state is always consistent.
 
 #### `signal.peek()`
 
@@ -140,6 +141,25 @@ dispose();
 surname.value = "Doe 2";
 ```
 
+The effect callback may return a cleanup function. The cleanup function gets run once, either when the effect callback is next called _or_ when the effect gets disposed, whichever happens first.
+
+```js
+import { signal, effect } from "@preact/signals-core";
+
+const count = signal(0);
+
+const dispose = effect(() => {
+	const c = count.value;
+	return () => console.log(`cleanup ${c}`);
+});
+
+// Logs: cleanup 0
+count.value = 1;
+
+// Logs: cleanup 1
+dispose();
+```
+
 ### `batch(fn)`
 
 The `batch` function allows you to combine multiple signal writes into one single update that is triggered at the end when the callback completes.
@@ -169,13 +189,13 @@ import { signal, computed, effect, batch } from "@preact/signals-core";
 
 const counter = signal(0);
 const double = computed(() => counter.value * 2);
-const tripple = computed(() => counter.value * 3);
+const triple = computed(() => counter.value * 3);
 
-effect(() => console.log(double.value, tripple.value));
+effect(() => console.log(double.value, triple.value));
 
 batch(() => {
 	counter.value = 1;
-	// Logs: 2, despite being inside batch, but `tripple`
+	// Logs: 2, despite being inside batch, but `triple`
 	// will only update once the callback is complete
 	console.log(double.value);
 });
@@ -200,6 +220,23 @@ batch(() => {
 	// Still not updated...
 });
 // Now the callback completed and we'll trigger the effect.
+```
+
+### `untracked(fn)`
+
+In case when you're receiving a callback that can read some signals, but you don't want to subscribe to them, you can use `untracked` to prevent any subscriptions from happening.
+
+```js
+const counter = signal(0);
+const effectCount = signal(0);
+const fn = () => effectCount.value + 1;
+
+effect(() => {
+	console.log(counter.value);
+
+	// Whenever this effect is triggered, run `fn` that gives new value
+	effectCount.value = untracked(fn);
+});
 ```
 
 ## License
